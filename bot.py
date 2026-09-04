@@ -1,6 +1,8 @@
 import logging
 import random
 import asyncio
+import os
+from aiohttp import web
 
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import (
@@ -1022,12 +1024,10 @@ async def finish_test(query, user_id, is_stopped_early=False):
     data = users[user_id]
     data["is_finished"] = True
 
-    # Agar muddatidan oldin to'xtatilgan bo'lsa, faqat yetib kelgan savollari hisoblanadi
     attempted = data["question"]
     total = len(data["question_order"])
     correct = data["correct"]
     
-    # Agar bitta ham savolga yetmasdan to'xtatgan bo'lsa
     evaluated_total = attempted if is_stopped_early and attempted > 0 else total
     wrong = evaluated_total - correct
     percent = (correct / evaluated_total) * 100 if evaluated_total > 0 else 0
@@ -1071,6 +1071,22 @@ async def finish_test(query, user_id, is_stopped_early=False):
     )
 
 # =========================================================
+# RENDER UCHUN DOIMIY ISHLASH TIZIMI (WEB SERVER)
+# =========================================================
+
+async def handle_ping(request):
+    return web.Response(text="Bot faol ishlamoqda!")
+
+async def start_web_server():
+    app = web.Application()
+    app.router.add_get("/", handle_ping)
+    runner = web.AppRunner(app)
+    await runner.setup()
+    port = int(os.environ.get("PORT", 10000))
+    site = web.TCPSite(runner, "0.0.0.0", port)
+    await site.start()
+
+# =========================================================
 # BOTNI ISHGA TUSHIRISH
 # =========================================================
 
@@ -1094,6 +1110,10 @@ def main():
     app.add_handler(CallbackQueryHandler(start_test, pattern="^start_test$"))
     app.add_handler(CallbackQueryHandler(stop_test_handler, pattern="^stop_test$"))
     app.add_handler(CallbackQueryHandler(answer_question, pattern="^answer_[0-3]$"))
+
+    # Render serveri to'xtab qolmasligi uchun veb-serverni parallel yurgizish
+    loop = asyncio.get_event_loop()
+    loop.create_task(start_web_server())
 
     app.run_polling()
 
