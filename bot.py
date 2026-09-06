@@ -18,10 +18,7 @@ from telegram.ext import (
 
 TOKEN = "8817043244:AAGJ8ooYXAmy4EPs4H6FO1zy1g0OVv_-fwk"
 AUTHOR_NAME = "Reyimbayev Bahrom Maxsudovich"
-
-# DIQQAT: O'z Telegram ID raqamingizni shu yerga yozing!
-# (@userinfobot orqali ID raqamingizni bilib olishingiz mumkin)
-ADMIN_ID = 5637205211  # Misol: ADMIN_ID = 123456789
+ADMIN_ID = 5637205211  # Sizning Telegram ID raqamingiz
 
 # Barcha qatnashuvchilar tarixini saqlash
 history_records = []
@@ -817,7 +814,7 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 async def stat_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = update.effective_user.id
-    if ADMIN_ID != 0 and user_id != ADMIN_ID:
+    if user_id != ADMIN_ID:
         return
 
     if not history_records:
@@ -825,7 +822,7 @@ async def stat_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
         return
 
     report = f"📊 <b>UMUMIY NATIJALAR ({len(history_records)} ta urinish):</b>\n\n"
-    for i, r in enumerate(history_records[-30:], 1):  # Oxirgi 30 ta natija
+    for i, r in enumerate(history_records[-30:], 1):
         report += (
             f"{i}. <b>{r['name']}</b> ({r['username']})\n"
             f"   Natija: {r['correct']}/{r['total']} ({r['percent']:.1f}%) — <b>{r['grade']}</b>\n"
@@ -861,17 +858,16 @@ async def start_test(update: Update, context: ContextTypes.DEFAULT_TYPE):
     }
 
     # Admin'ga xabar berish
-    if ADMIN_ID != 0:
-        try:
-            admin_msg = (
-                f"🟢 <b>Yangi ishtirokchi test boshladi!</b>\n\n"
-                f"👤 <b>Ism:</b> {user_fullname}\n"
-                f"🔗 <b>Username:</b> {username}\n"
-                f"🆔 <b>ID:</b> <code>{user_id}</code>"
-            )
-            await context.bot.send_message(chat_id=ADMIN_ID, text=admin_msg, parse_mode="HTML")
-        except Exception:
-            pass
+    try:
+        admin_msg = (
+            f"🟢 <b>Yangi ishtirokchi test boshladi!</b>\n\n"
+            f"👤 <b>Ism:</b> {user_fullname}\n"
+            f"🔗 <b>Username:</b> {username}\n"
+            f"🆔 <b>ID:</b> <code>{user_id}</code>"
+        )
+        await context.bot.send_message(chat_id=ADMIN_ID, text=admin_msg, parse_mode="HTML")
+    except Exception:
+        pass
 
     await send_question(query, user_id, context)
 
@@ -1009,16 +1005,16 @@ async def question_timer(bot, chat_id, message_id, user_id, question_number, que
         pass
 
 # =========================================================
-# JAVOBNI QABUL QILISH
+# JAVOBNI QABUL QILISH (TO'G'RI / NOTO'G'RI BILDIRISHNOMA BILAN)
 # =========================================================
 
 async def answer_question(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
-    await query.answer()
 
     user_id = query.from_user.id
 
     if user_id not in users or users[user_id].get("is_finished"):
+        await query.answer()
         await query.edit_message_text(
             "❗ Test sessiyasi yakunlangan.\n\n/start buyrug‘i orqali qaytadan boshlang."
         )
@@ -1028,17 +1024,29 @@ async def answer_question(update: Update, context: ContextTypes.DEFAULT_TYPE):
     number = data["question"]
 
     if number >= len(data["question_order"]):
+        await query.answer()
         await finish_test(query, user_id, context=context)
         return
 
     selected = int(query.data.split("_")[1])
     question_index = data["question_order"][number]
     question = questions[question_index]
+    correct_idx = question["answer"]
+
+    letters = ["A", "B", "C", "D"]
+    correct_letter = letters[correct_idx]
 
     data["answers"].append(selected)
 
-    if selected == question["answer"]:
+    # Javobni tekshirish va xabar matnini tayyorlash
+    if selected == correct_idx:
         data["correct"] += 1
+        feedback = "✅ TO‘G‘RI JAVOB!"
+    else:
+        feedback = f"❌ NOTO‘G‘RI!\nTo‘g‘ri javob: {correct_letter})"
+
+    # Foydalanuvchiga oynada bildirishnoma chiqarish
+    await query.answer(feedback, show_alert=True)
 
     data["question"] += 1
 
@@ -1098,25 +1106,24 @@ async def finish_test(query, user_id, is_stopped_early=False, context: ContextTy
         "grade": grade
     })
 
-    # Admin'ga yakuniy hisobotni yuborish
-    if ADMIN_ID != 0:
-        try:
-            bot_obj = context.bot if context else query.get_bot()
-            stop_note = " (🛑 Muddatidan oldin to'xtatildi)" if is_stopped_early else ""
-            report = (
-                f"🏁 <b>Test yakunlandi!{stop_note}</b>\n\n"
-                f"👤 <b>Ism:</b> {data['name']}\n"
-                f"🔗 <b>Username:</b> {data['username']}\n"
-                f"🆔 <b>ID:</b> <code>{user_id}</code>\n"
-                f"📊 <b>Savollar:</b> {attempted} / {total}\n"
-                f"✅ <b>To‘g‘ri javoblar:</b> {correct} ta\n"
-                f"❌ <b>Xatolar:</b> {wrong} ta\n"
-                f"📈 <b>Natija:</b> {percent:.1f}%\n"
-                f"🎓 <b>Bahosi:</b> <b>{grade}</b>"
-            )
-            await bot_obj.send_message(chat_id=ADMIN_ID, text=report, parse_mode="HTML")
-        except Exception:
-            pass
+    # Admin'ga hisobot yuborish
+    try:
+        bot_obj = context.bot if context else query.get_bot()
+        stop_note = " (🛑 Muddatidan oldin to'xtatildi)" if is_stopped_early else ""
+        report = (
+            f"🏁 <b>Test yakunlandi!{stop_note}</b>\n\n"
+            f"👤 <b>Ism:</b> {data['name']}\n"
+            f"🔗 <b>Username:</b> {data['username']}\n"
+            f"🆔 <b>ID:</b> <code>{user_id}</code>\n"
+            f"📊 <b>Savollar:</b> {attempted} / {total}\n"
+            f"✅ <b>To‘g‘ri javoblar:</b> {correct} ta\n"
+            f"❌ <b>Xatolar:</b> {wrong} ta\n"
+            f"📈 <b>Natija:</b> {percent:.1f}%\n"
+            f"🎓 <b>Bahosi:</b> <b>{grade}</b>"
+        )
+        await bot_obj.send_message(chat_id=ADMIN_ID, text=report, parse_mode="HTML")
+    except Exception:
+        pass
 
     status_header = "🛑 <b>TEST MUDDATIDAN OLDIN TO‘XTATILDI!</b>" if is_stopped_early else "🏁 <b>TEST TO‘LIQ YAKUNLANDI!</b>"
 
@@ -1181,10 +1188,10 @@ async def run_bot():
     print("🛑 Istalgan vaqtda to‘xtatish imkoniyati mavjud")
     print("====================================")
 
-    # Render serveri to'xtab qolmasligi uchun veb-serverni ishga tushirish
+    # Render serveri to'xtab qolmasligi uchun veb-serverni parallel yurgizish
     await start_web_server()
 
-    # Telegram Bot dasturi
+    # Telegram bot ilovasi
     app = Application.builder().token(TOKEN).build()
 
     app.add_handler(CommandHandler("start", start))
