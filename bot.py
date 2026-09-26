@@ -857,19 +857,21 @@ async def start_test(update: Update, context: ContextTypes.DEFAULT_TYPE):
         "is_finished": False
     }
 
-    # Admin'ga xabar berish
-    try:
-        admin_msg = (
-            f"🟢 <b>Yangi ishtirokchi test boshladi!</b>\n\n"
-            f"👤 <b>Ism:</b> {user_fullname}\n"
-            f"🔗 <b>Username:</b> {username}\n"
-            f"🆔 <b>ID:</b> <code>{user_id}</code>"
-        )
-        await context.bot.send_message(chat_id=ADMIN_ID, text=admin_msg, parse_mode="HTML")
-    except Exception:
-        pass
-
+    # Birinchi bo'lib savolni yuboramiz
     await send_question(query, user_id, context)
+
+    # Admin'ga xabarni keyin yuboramiz
+    if ADMIN_ID != 0:
+        try:
+            admin_msg = (
+                f"🟢 <b>Yangi ishtirokchi test boshladi!</b>\n\n"
+                f"👤 <b>Ism:</b> {user_fullname}\n"
+                f"🔗 <b>Username:</b> {username}\n"
+                f"🆔 <b>ID:</b> <code>{user_id}</code>"
+            )
+            await context.bot.send_message(chat_id=ADMIN_ID, text=admin_msg, parse_mode="HTML")
+        except Exception:
+            pass
 
 # =========================================================
 # SAVOLNI YUBORISH
@@ -926,9 +928,9 @@ async def send_question(query, user_id, context: ContextTypes.DEFAULT_TYPE):
         parse_mode="HTML"
     )
 
-    bot_instance = context.bot if context else query.get_bot()
+    bot_instance = context.bot
 
-    # Jonli taymer
+    # Jonli taymerni xavfsiz ishga tushirish
     asyncio.create_task(
         question_timer(
             bot_instance,
@@ -1038,14 +1040,12 @@ async def answer_question(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     data["answers"].append(selected)
 
-    # Javobni tekshirish va xabar matnini tayyorlash
     if selected == correct_idx:
         data["correct"] += 1
         feedback = "✅ TO‘G‘RI JAVOB!"
     else:
         feedback = f"❌ NOTO‘G‘RI!\nTo‘g‘ri javob: {correct_letter})"
 
-    # Foydalanuvchiga oynada bildirishnoma chiqarish
     await query.answer(feedback, show_alert=True)
 
     data["question"] += 1
@@ -1107,23 +1107,23 @@ async def finish_test(query, user_id, is_stopped_early=False, context: ContextTy
     })
 
     # Admin'ga hisobot yuborish
-    try:
-        bot_obj = context.bot if context else query.get_bot()
-        stop_note = " (🛑 Muddatidan oldin to'xtatildi)" if is_stopped_early else ""
-        report = (
-            f"🏁 <b>Test yakunlandi!{stop_note}</b>\n\n"
-            f"👤 <b>Ism:</b> {data['name']}\n"
-            f"🔗 <b>Username:</b> {data['username']}\n"
-            f"🆔 <b>ID:</b> <code>{user_id}</code>\n"
-            f"📊 <b>Savollar:</b> {attempted} / {total}\n"
-            f"✅ <b>To‘g‘ri javoblar:</b> {correct} ta\n"
-            f"❌ <b>Xatolar:</b> {wrong} ta\n"
-            f"📈 <b>Natija:</b> {percent:.1f}%\n"
-            f"🎓 <b>Bahosi:</b> <b>{grade}</b>"
-        )
-        await bot_obj.send_message(chat_id=ADMIN_ID, text=report, parse_mode="HTML")
-    except Exception:
-        pass
+    if ADMIN_ID != 0 and context:
+        try:
+            stop_note = " (🛑 Muddatidan oldin to'xtatildi)" if is_stopped_early else ""
+            report = (
+                f"🏁 <b>Test yakunlandi!{stop_note}</b>\n\n"
+                f"👤 <b>Ism:</b> {data['name']}\n"
+                f"🔗 <b>Username:</b> {data['username']}\n"
+                f"🆔 <b>ID:</b> <code>{user_id}</code>\n"
+                f"📊 <b>Savollar:</b> {attempted} / {total}\n"
+                f"✅ <b>To‘g‘ri javoblar:</b> {correct} ta\n"
+                f"❌ <b>Xatolar:</b> {wrong} ta\n"
+                f"📈 <b>Natija:</b> {percent:.1f}%\n"
+                f"🎓 <b>Bahosi:</b> <b>{grade}</b>"
+            )
+            await context.bot.send_message(chat_id=ADMIN_ID, text=report, parse_mode="HTML")
+        except Exception:
+            pass
 
     status_header = "🛑 <b>TEST MUDDATIDAN OLDIN TO‘XTATILDI!</b>" if is_stopped_early else "🏁 <b>TEST TO‘LIQ YAKUNLANDI!</b>"
 
@@ -1188,7 +1188,7 @@ async def run_bot():
     print("🛑 Istalgan vaqtda to‘xtatish imkoniyati mavjud")
     print("====================================")
 
-    # Render serveri to'xtab qolmasligi uchun veb-serverni parallel yurgizish
+    # Veb-serverni ishga tushirish
     await start_web_server()
 
     # Telegram bot ilovasi
