@@ -2,6 +2,7 @@ import logging
 import random
 import asyncio
 import os
+import traceback
 from aiohttp import web
 
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
@@ -18,9 +19,8 @@ from telegram.ext import (
 
 TOKEN = "8817043244:AAGJ8ooYXAmy4EPs4H6FO1zy1g0OVv_-fwk"
 AUTHOR_NAME = "Reyimbayev Bahrom Maxsudovich"
-ADMIN_ID = 5637205211  # Sizning Telegram ID raqamingiz
+ADMIN_ID = 5637205211
 
-# Barcha qatnashuvchilar tarixini saqlash
 history_records = []
 
 # =========================================================
@@ -750,14 +750,9 @@ questions = [
     }
 ]
 
-# =========================================================
-# FOYDALANUVCHILAR SESSIYASI
-# =========================================================
-
 users = {}
 
 def get_progress_bar(total_time, remaining_time):
-    """Vizual vaqt shkalasi"""
     total_blocks = 10
     filled_blocks = int((remaining_time / total_time) * total_blocks)
     empty_blocks = total_blocks - filled_blocks
@@ -770,7 +765,7 @@ def get_progress_bar(total_time, remaining_time):
     return bar
 
 # =========================================================
-# /start BUYRUG'I
+# /start VA /stat
 # =========================================================
 
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -808,10 +803,6 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
         parse_mode="HTML"
     )
 
-# =========================================================
-# ADMIN UCHUN /stat BUYRUG'I
-# =========================================================
-
 async def stat_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = update.effective_user.id
     if user_id != ADMIN_ID:
@@ -836,7 +827,10 @@ async def stat_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 async def start_test(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
-    await query.answer()
+    try:
+        await query.answer()
+    except Exception:
+        pass
 
     user_id = query.from_user.id
     user_fullname = query.from_user.full_name
@@ -854,13 +848,14 @@ async def start_test(update: Update, context: ContextTypes.DEFAULT_TYPE):
         "question_order": question_order,
         "message_id": query.message.message_id,
         "chat_id": query.message.chat_id,
-        "is_finished": False
+        "is_finished": False,
+        "timer_task": None
     }
 
-    # Birinchi bo'lib savolni yuboramiz
+    # 1-savolni yuborish
     await send_question(query, user_id, context)
 
-    # Admin'ga xabarni keyin yuboramiz
+    # Admin xabari (xato bermasa fonda yuboriladi)
     if ADMIN_ID != 0:
         try:
             admin_msg = (
@@ -874,7 +869,7 @@ async def start_test(update: Update, context: ContextTypes.DEFAULT_TYPE):
             pass
 
 # =========================================================
-# SAVOLNI YUBORISH
+# SAVOLNI CHIQARISH
 # =========================================================
 
 def get_question_keyboard():
@@ -899,13 +894,16 @@ async def send_question(query, user_id, context: ContextTypes.DEFAULT_TYPE):
     data = users[user_id]
     number = data["question"]
 
+    # Oldingi taymer bo'lsa uni to'xtatish
+    if data.get("timer_task") and not data["timer_task"].done():
+        data["timer_task"].cancel()
+
     if number >= len(data["question_order"]):
         await finish_test(query, user_id, context=context)
         return
 
     question_index = data["question_order"][number]
     question = questions[question_index]
-
     letters = ["A", "B", "C", "D"]
 
     text = (
@@ -922,18 +920,26 @@ async def send_question(query, user_id, context: ContextTypes.DEFAULT_TYPE):
 
     keyboard = get_question_keyboard()
 
-    await query.edit_message_text(
-        text,
-        reply_markup=keyboard,
-        parse_mode="HTML"
-    )
+    try:
+        await query.edit_message_text(
+            text=text,
+            reply_markup=keyboard,
+            parse_mode="HTML"
+        )
+    except Exception as e:
+        # Agar edit qilib bo'lmasa, yangi xabar qilib yuboradi
+        sent = await context.bot.send_message(
+            chat_id=data["chat_id"],
+            text=text,
+            reply_markup=keyboard,
+            parse_mode="HTML"
+        )
+        data["message_id"] = sent.message_id
 
-    bot_instance = context.bot
-
-    # Jonli taymerni xavfsiz ishga tushirish
-    asyncio.create_task(
+    # Yangi taymerni ishga tushirish
+    data["timer_task"] = asyncio.create_task(
         question_timer(
-            bot_instance,
+            context.bot,
             data["chat_id"],
             data["message_id"],
             user_id,
@@ -945,7 +951,7 @@ async def send_question(query, user_id, context: ContextTypes.DEFAULT_TYPE):
     )
 
 # =========================================================
-# 60 SONIYALIK JONLI TAYMER
+# JONLI TAYMER
 # =========================================================
 
 async def question_timer(bot, chat_id, message_id, user_id, question_number, question_obj, query, context):
@@ -974,13 +980,16 @@ async def question_timer(bot, chat_id, message_id, user_id, question_number, que
 
             text += f"⏳ <b>Vaqt:</b> {bar} <code>{remaining:02d} soniya</code>"
 
-            await bot.edit_message_text(
-                chat_id=chat_id,
-                message_id=message_id,
-                text=text,
-                reply_markup=keyboard,
-                parse_mode="HTML"
-            )
+            try:
+                await bot.edit_message_text(
+                    chat_id=chat_id,
+                    message_id=message_id,
+                    text=text,
+                    reply_markup=keyboard,
+                    parse_mode="HTML"
+                )
+            except Exception:
+                pass
 
         await asyncio.sleep(step)
 
@@ -992,12 +1001,20 @@ async def question_timer(bot, chat_id, message_id, user_id, question_number, que
         if users[user_id]["question"] >= len(users[user_id]["question_order"]):
             await finish_test(query, user_id, context=context)
         else:
-            await query.edit_message_text(
-                f"⏰ <b>{question_number + 1}-savol uchun 60 soniya vaqt tugadi!</b>\n\n"
-                f"❌ <i>Javob hisoblanmadi.</i>\n\n"
-                f"➡️ Keyingi savolga o‘tilmoqda...",
-                parse_mode="HTML"
-            )
+            try:
+                await bot.edit_message_text(
+                    chat_id=chat_id,
+                    message_id=message_id,
+                    text=(
+                        f"⏰ <b>{question_number + 1}-savol uchun 60 soniya vaqt tugadi!</b>\n\n"
+                        f"❌ <i>Javob hisoblanmadi.</i>\n\n"
+                        f"➡️ Keyingi savolga o‘tilmoqda..."
+                    ),
+                    parse_mode="HTML"
+                )
+            except Exception:
+                pass
+
             await asyncio.sleep(1.5)
             await send_question(query, user_id, context)
 
@@ -1007,26 +1024,28 @@ async def question_timer(bot, chat_id, message_id, user_id, question_number, que
         pass
 
 # =========================================================
-# JAVOBNI QABUL QILISH (TO'G'RI / NOTO'G'RI BILDIRISHNOMA BILAN)
+# JAVOBNI QABUL QILISH
 # =========================================================
 
 async def answer_question(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
-
     user_id = query.from_user.id
 
     if user_id not in users or users[user_id].get("is_finished"):
-        await query.answer()
-        await query.edit_message_text(
-            "❗ Test sessiyasi yakunlangan.\n\n/start buyrug‘i orqali qaytadan boshlang."
-        )
+        try:
+            await query.answer("Sessiya yakunlangan!", show_alert=True)
+        except Exception:
+            pass
         return
 
     data = users[user_id]
     number = data["question"]
 
     if number >= len(data["question_order"]):
-        await query.answer()
+        try:
+            await query.answer()
+        except Exception:
+            pass
         await finish_test(query, user_id, context=context)
         return
 
@@ -1046,7 +1065,10 @@ async def answer_question(update: Update, context: ContextTypes.DEFAULT_TYPE):
     else:
         feedback = f"❌ NOTO‘G‘RI!\nTo‘g‘ri javob: {correct_letter})"
 
-    await query.answer(feedback, show_alert=True)
+    try:
+        await query.answer(feedback, show_alert=True)
+    except Exception:
+        pass
 
     data["question"] += 1
 
@@ -1056,19 +1078,22 @@ async def answer_question(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await send_question(query, user_id, context)
 
 # =========================================================
-# TESTNI MUDDATIDAN OLDIN YAKUNLASH
+# TESTNI TO'XTATISH
 # =========================================================
 
 async def stop_test_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
-    await query.answer("Test to‘xtatildi!", show_alert=False)
+    try:
+        await query.answer("Test to‘xtatildi!", show_alert=False)
+    except Exception:
+        pass
 
     user_id = query.from_user.id
     if user_id in users:
         await finish_test(query, user_id, is_stopped_early=True, context=context)
 
 # =========================================================
-# TEST YAKUNI VA BAHOLASH
+# YAKUNIY BAHOLASH
 # =========================================================
 
 async def finish_test(query, user_id, is_stopped_early=False, context: ContextTypes.DEFAULT_TYPE = None):
@@ -1078,10 +1103,13 @@ async def finish_test(query, user_id, is_stopped_early=False, context: ContextTy
     data = users[user_id]
     data["is_finished"] = True
 
+    if data.get("timer_task") and not data["timer_task"].done():
+        data["timer_task"].cancel()
+
     attempted = data["question"]
     total = len(data["question_order"])
     correct = data["correct"]
-    
+
     evaluated_total = attempted if is_stopped_early and attempted > 0 else total
     wrong = evaluated_total - correct
     percent = (correct / evaluated_total) * 100 if evaluated_total > 0 else 0
@@ -1095,7 +1123,6 @@ async def finish_test(query, user_id, is_stopped_early=False, context: ContextTy
     else:
         grade = "2 — QONIQARSIZ"
 
-    # Tarixga qo'shish
     history_records.append({
         "name": data["name"],
         "username": data["username"],
@@ -1106,7 +1133,6 @@ async def finish_test(query, user_id, is_stopped_early=False, context: ContextTy
         "grade": grade
     })
 
-    # Admin'ga hisobot yuborish
     if ADMIN_ID != 0 and context:
         try:
             stop_note = " (🛑 Muddatidan oldin to'xtatildi)" if is_stopped_early else ""
@@ -1148,14 +1174,31 @@ async def finish_test(query, user_id, is_stopped_early=False, context: ContextTy
         ]
     ]
 
-    await query.edit_message_text(
-        text,
-        reply_markup=InlineKeyboardMarkup(keyboard),
-        parse_mode="HTML"
-    )
+    try:
+        await query.edit_message_text(
+            text=text,
+            reply_markup=InlineKeyboardMarkup(keyboard),
+            parse_mode="HTML"
+        )
+    except Exception:
+        if context:
+            await context.bot.send_message(
+                chat_id=data["chat_id"],
+                text=text,
+                reply_markup=InlineKeyboardMarkup(keyboard),
+                parse_mode="HTML"
+            )
 
 # =========================================================
-# RENDER UCHUN DOIMIY ISHLASH TIZIMI (WEB SERVER)
+# XATOLIKLARNI USHLASH (ERROR HANDLER)
+# =========================================================
+
+async def error_handler(update: object, context: ContextTypes.DEFAULT_TYPE) -> None:
+    logging.error(f"Xatolik yuz berdi: {context.error}")
+    traceback.print_exc()
+
+# =========================================================
+# VEB-SERVER VA ISHGA TUSHIRISH
 # =========================================================
 
 async def handle_ping(request):
@@ -1170,10 +1213,6 @@ async def start_web_server():
     site = web.TCPSite(runner, "0.0.0.0", port)
     await site.start()
 
-# =========================================================
-# BOTNI ISHGA TUSHIRISH (Python 3.14+ moslashuvi)
-# =========================================================
-
 logging.basicConfig(
     format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
     level=logging.INFO
@@ -1184,14 +1223,10 @@ async def run_bot():
     print("🤖 TELEGRAM TEST BOT ISHGA TUSHMOQDA")
     print(f"👨‍🏫 Muallif: {AUTHOR_NAME}")
     print(f"📚 Savollar soni: {len(questions)} ta")
-    print("⏱ Har bir savol: 60 soniya (jonli taymer)")
-    print("🛑 Istalgan vaqtda to‘xtatish imkoniyati mavjud")
     print("====================================")
 
-    # Veb-serverni ishga tushirish
     await start_web_server()
 
-    # Telegram bot ilovasi
     app = Application.builder().token(TOKEN).build()
 
     app.add_handler(CommandHandler("start", start))
@@ -1200,7 +1235,8 @@ async def run_bot():
     app.add_handler(CallbackQueryHandler(stop_test_handler, pattern="^stop_test$"))
     app.add_handler(CallbackQueryHandler(answer_question, pattern="^answer_[0-3]$"))
 
-    # Botni ishga tushirish (async loop)
+    app.add_error_handler(error_handler)
+
     async with app:
         await app.start()
         await app.updater.start_polling()
