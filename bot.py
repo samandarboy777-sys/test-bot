@@ -17,7 +17,7 @@ from telegram.ext import (
 # BOT TOKEN VA SOZLAMALAR
 # =========================================================
 
-TOKEN = "8817043244:AAGJ8ooYXAmy4EPs4H6FO1zy1g0OVv_-fwk"
+TOKEN = "8817043244:AAGqUP5b4C0Ye5CgK2DzHfsMGOS1Ya-0Wpw"
 AUTHOR_NAME = "Reyimbayev Bahrom Maxsudovich"
 ADMIN_ID = 5637205211
 
